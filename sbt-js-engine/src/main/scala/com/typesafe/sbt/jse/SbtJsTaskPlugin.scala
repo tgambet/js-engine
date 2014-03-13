@@ -273,7 +273,7 @@ abstract class SbtJsTaskPlugin extends sbt.Plugin {
     val logger: Logger = state.value.log
 
     implicit val opInputHasher = (fileInputHasher in task in config).value
-    val results: FileWrittenAndProblems = incremental.runIncremental(streams.value.cacheDirectory / "run", sources) {
+    val results: FileWrittenAndProblems = incremental.runIncremental((streams in config).value.cacheDirectory / "run", sources) {
       modifiedSources: Seq[File] =>
 
         val fullRun = modifiedSources.size == sources.size
