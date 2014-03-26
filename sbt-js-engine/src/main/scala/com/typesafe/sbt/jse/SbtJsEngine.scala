@@ -7,17 +7,17 @@ import scala.collection.immutable
 import com.typesafe.npm.Npm
 import akka.util.Timeout
 import scala.concurrent.{ExecutionContext, Await}
-import com.typesafe.sbt.web.SbtWebPlugin.WebKeys
+import com.typesafe.sbt.web.SbtWeb.WebKeys
 import com.typesafe.jse.Node
-import com.typesafe.sbt.web.SbtWebPlugin
+import com.typesafe.sbt.web.SbtWeb
 import scala.concurrent.duration._
 
 /**
  * Declares the main parts of a WebDriver based plugin for sbt.
  */
-object SbtJsEnginePlugin extends AutoPlugin {
+object SbtJsEngine extends AutoPlugin {
 
-  override def requires = SbtWebPlugin
+  override def requires = SbtWeb
   override def trigger = AllRequirements
 
   object JsEngineKeys {
@@ -61,7 +61,7 @@ object SbtJsEnginePlugin extends AutoPlugin {
         _ =>
           if (npmPackageJson.exists) {
             implicit val timeout = Timeout(npmTimeout.value)
-            val pendingExitValue = SbtWebPlugin.withActorRefFactory(state.value, this.getClass.getName) {
+            val pendingExitValue = SbtWeb.withActorRefFactory(state.value, this.getClass.getName) {
               arf =>
                 val webJarsNodeModulesPath = (webJarsNodeModulesDirectory in Plugin).value.getCanonicalPath
                 val nodePathEnv = NodeEngine.nodePathEnv(immutable.Seq(webJarsNodeModulesPath))

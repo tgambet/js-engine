@@ -8,14 +8,14 @@ import com.typesafe.sbt.web._
 import xsbti.{Problem, Severity}
 import com.typesafe.sbt.web.incremental.OpResult
 import com.typesafe.sbt.web.incremental.OpFailure
-import com.typesafe.sbt.jse.SbtJsEnginePlugin.JsEngineKeys
+import com.typesafe.sbt.jse.SbtJsEngine.JsEngineKeys
 import com.typesafe.sbt.web.incremental.OpInputHash
 import akka.actor.ActorRef
 import akka.util.Timeout
 import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.collection.immutable
 import com.typesafe.jse._
-import com.typesafe.sbt.web.SbtWebPlugin._
+import com.typesafe.sbt.web.SbtWeb._
 import akka.pattern.ask
 import com.typesafe.sbt.web.incremental
 import com.typesafe.sbt.web.CompileProblems
@@ -28,9 +28,9 @@ import scala.concurrent.duration._
 /**
  * The commonality of JS task execution oriented plugins is captured by this class.
  */
-object SbtJsTaskPlugin extends AutoPlugin {
+object SbtJsTask extends AutoPlugin {
 
-  override def requires = SbtJsEnginePlugin
+  override def requires = SbtJsEngine
   override def trigger = AllRequirements
 
   object JsTaskKeys {
@@ -60,10 +60,10 @@ object SbtJsTaskPlugin extends AutoPlugin {
       inConfig(TestAssets)(jsTaskSpecificUnscopedConfigSettings) ++
       Seq(
         shellSource := {
-          SbtWebPlugin.copyResourceTo(
+          SbtWeb.copyResourceTo(
             (target in Plugin).value / moduleName.value,
             shellFile.value,
-            SbtJsTaskPlugin.getClass.getClassLoader,
+            SbtJsTask.getClass.getClassLoader,
             streams.value.cacheDirectory / "copy-resource"
           )
         }
@@ -258,7 +258,7 @@ object SbtJsTaskPlugin extends AutoPlugin {
                         ): Def.Initialize[Task[Seq[File]]] = Def.task {
 
     val nodeModulePaths = (nodeModuleDirectories in Plugin).value.map(_.getCanonicalPath)
-    val engineProps = SbtJsEnginePlugin.engineTypeToProps((engineType in task).value, NodeEngine.nodePathEnv(nodeModulePaths.to[immutable.Seq]))
+    val engineProps = SbtJsEngine.engineTypeToProps((engineType in task).value, NodeEngine.nodePathEnv(nodeModulePaths.to[immutable.Seq]))
 
     val sources = ((unmanagedSources in config).value ** (fileFilter in task in config).value).get
 
@@ -389,7 +389,7 @@ object SbtJsTaskPlugin extends AutoPlugin {
                  args: Seq[String],
                  timeout: FiniteDuration
                  ): Seq[JsValue] = {
-    val engineProps = SbtJsEnginePlugin.engineTypeToProps(engineType, NodeEngine.nodePathEnv(nodeModules.to[immutable.Seq]))
+    val engineProps = SbtJsEngine.engineTypeToProps(engineType, NodeEngine.nodePathEnv(nodeModules.to[immutable.Seq]))
 
     withActorRefFactory(state, this.getClass.getName) {
       arf =>

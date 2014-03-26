@@ -40,7 +40,7 @@ class SbtJsTaskPluginSpec extends Specification with NoTimeConversions {
           }
       """)
 
-      import SbtJsTaskPlugin.JsTaskProtocol._
+      import SbtJsTask.JsTaskProtocol._
       val problemResultsPair = p.convertTo[ProblemResultsPair]
       problemResultsPair.problems.size must_== 1
       problemResultsPair.problems(0).position().offset().get() must_== 5
