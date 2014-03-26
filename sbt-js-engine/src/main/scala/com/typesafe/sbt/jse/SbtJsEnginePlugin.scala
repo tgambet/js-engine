@@ -17,7 +17,8 @@ import scala.concurrent.duration._
  */
 object SbtJsEnginePlugin extends AutoPlugin {
 
-  def select = SbtWebPlugin
+  override def requires = SbtWebPlugin
+  override def trigger = AllRequirements
 
   object JsEngineKeys {
 
