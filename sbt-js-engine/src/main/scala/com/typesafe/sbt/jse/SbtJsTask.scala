@@ -8,7 +8,6 @@ import com.typesafe.sbt.web._
 import xsbti.{Problem, Severity}
 import com.typesafe.sbt.web.incremental.OpResult
 import com.typesafe.sbt.web.incremental.OpFailure
-import com.typesafe.sbt.jse.SbtJsEngine.JsEngineKeys
 import com.typesafe.sbt.web.incremental.OpInputHash
 import akka.actor.ActorRef
 import akka.util.Timeout
@@ -25,13 +24,7 @@ import sbt.Configuration
 import sbinary.{Input, Output, Format}
 import scala.concurrent.duration._
 
-/**
- * The commonality of JS task execution oriented plugins is captured by this class.
- */
-object SbtJsTask extends AutoPlugin {
-
-  override def requires = SbtJsEngine
-  override def trigger = AllRequirements
+object JsTaskImport {
 
   object JsTaskKeys {
 
@@ -44,9 +37,24 @@ object SbtJsTask extends AutoPlugin {
     val timeoutPerSource = SettingKey[FiniteDuration]("jstask-timeout-per-source", "The maximum number of seconds to wait per source file processed by the JS task.")
   }
 
+}
 
+/**
+ * The commonality of JS task execution oriented plugins is captured by this class.
+ */
+object SbtJsTask extends AutoPlugin {
+
+  override def requires = SbtJsEngine
+
+  override def trigger = AllRequirements
+
+  val autoImport = JsTaskImport
+
+  import SbtWeb.autoImport._
   import WebKeys._
+  import SbtJsEngine.autoImport._
   import JsEngineKeys._
+  import autoImport._
   import JsTaskKeys._
 
   val jsTaskSpecificUnscopedConfigSettings = Seq(
