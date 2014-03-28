@@ -20,6 +20,12 @@ as with other sbt-js-engine plugins, the type of engine can be configured. For e
 JsEngineKeys.engineType := JsEngineKeys.EngineType.Node
 ```
 
+Alternatively you can provide a system property via SBT_OPTS, for example:
+
+```bash
+export SBT_OPTS="$SBT_OPTS -Dsbt.jse.engineType=Node"
+```
+
 npm extracts its artifacts into the node_modules folder of a base directory and makes the contents available to
 sbt-web plugins as a whole. Note that sbt-js-engines loads the
 actual source code of npm via a WebJar and invokes an "npm update". Any external npm activity can therefore be performed

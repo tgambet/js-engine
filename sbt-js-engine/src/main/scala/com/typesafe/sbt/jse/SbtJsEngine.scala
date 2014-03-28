@@ -10,6 +10,7 @@ import scala.concurrent.{ExecutionContext, Await}
 import com.typesafe.jse.Node
 import com.typesafe.sbt.web.SbtWeb
 import scala.concurrent.duration._
+import scala.util.Try
 
 object JsEngineImport {
 
@@ -19,7 +20,7 @@ object JsEngineImport {
       val CommonNode, Node, PhantomJs, Rhino, Trireme = Value
     }
 
-    val engineType = SettingKey[EngineType.Value]("jse-type", "The type of engine to use.")
+    val engineType = SettingKey[EngineType.Value]("jse-engine-type", "The type of engine to use.")
     val parallelism = SettingKey[Int]("jse-parallelism", "The number of parallel tasks for the JavaScript engine. Defaults to the # of available processors + 1 to keep things busy.")
 
     val npmTimeout = SettingKey[FiniteDuration]("jse-npm-timeout", "The maximum number of seconds to for npm to do its thing.")
@@ -104,8 +105,16 @@ object SbtJsEngine extends AutoPlugin {
     nodeModuleDirectories += baseDirectory.value / NodeModules
   )
 
+  private val defaultEngineType = EngineType.Trireme
+
   override def projectSettings: Seq[Setting[_]] = Seq(
-    engineType := EngineType.Trireme,
+    engineType := sys.props.get("sbt.jse.engineType").map {
+      engineTypeStr =>
+        Try(EngineType.withName(engineTypeStr)).orElse {
+          println(s"Unknown engine type $engineTypeStr for sbt.jse.engineType. Resorting back to the default of $defaultEngineType.")
+          Try(defaultEngineType)
+        }.get
+    }.getOrElse(defaultEngineType),
     parallelism := java.lang.Runtime.getRuntime.availableProcessors() + 1,
     npmTimeout := 2.minutes
 
