@@ -110,10 +110,10 @@ object SbtJsEngine extends AutoPlugin {
   override def projectSettings: Seq[Setting[_]] = Seq(
     engineType := sys.props.get("sbt.jse.engineType").map {
       engineTypeStr =>
-        Try(EngineType.withName(engineTypeStr)).orElse {
+        Try(EngineType.withName(engineTypeStr)).getOrElse {
           println(s"Unknown engine type $engineTypeStr for sbt.jse.engineType. Resorting back to the default of $defaultEngineType.")
-          Try(defaultEngineType)
-        }.get
+          defaultEngineType
+        }
     }.getOrElse(defaultEngineType),
     parallelism := java.lang.Runtime.getRuntime.availableProcessors() + 1,
     npmTimeout := 2.minutes
