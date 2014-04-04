@@ -2,14 +2,13 @@ organization := "com.typesafe"
 
 name := "jse"
 
-version := "1.0.0-SNAPSHOT"
+version := "1.0.0-M2"
 
 scalaVersion := "2.10.3"
 
 libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-actor" % "2.2.3",
   "com.typesafe.akka" %% "akka-contrib" % "2.2.3",
-  "org.mozilla" % "rhino" % "1.7R4",
   "io.apigee.trireme" % "trireme-core" % "0.7.1",
   "io.apigee.trireme" % "trireme-node10src" % "0.7.1",
   "io.spray" %% "spray-json" % "1.2.5",
@@ -20,6 +19,9 @@ libraryDependencies ++= Seq(
 )
 
 resolvers += Resolver.sonatypeRepo("snapshots")
+
+// FIXME: Working around https://github.com/sbt/sbt/issues/1156#issuecomment-39317363
+isSnapshot := true
 
 publishTo := {
     val isSnapshot = version.value.contains("-SNAPSHOT")
