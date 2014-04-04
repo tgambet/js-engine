@@ -35,7 +35,5 @@ publishTo := {
 
 lazy val root = project.in( file(".") )
 
-lazy val `sbt-js-engine` = project
-
 lazy val `js-engine-tester` = project.dependsOn(root)
 
