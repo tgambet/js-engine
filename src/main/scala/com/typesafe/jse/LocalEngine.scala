@@ -6,6 +6,7 @@ import akka.contrib.process.BlockingProcess
 import akka.contrib.process.BlockingProcess.Started
 import scala.collection.immutable
 import akka.contrib.process.StreamEvents.Ack
+import spray.json.JsString
 
 /**
  * Provides an Actor on behalf of a JavaScript Engine. Engines are represented as operating system processes and are
@@ -20,7 +21,7 @@ class LocalEngine(stdArgs: immutable.Seq[String], stdEnvironment: Map[String, St
       val requester = sender
 
       context.actorOf(BlockingProcess.props(
-        (stdArgs :+ f.getCanonicalPath) ++ args,
+        (stdArgs :+ JsString(f.getCanonicalPath).toString()) ++ args,
         stdEnvironment ++ environment, self),
         "process"
       )
