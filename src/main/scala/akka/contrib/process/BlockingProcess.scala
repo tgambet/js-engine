@@ -25,7 +25,28 @@ import akka.contrib.process.StreamEvents.{Done, Ack}
 class BlockingProcess(args: immutable.Seq[String], environment: Map[String, String], receiver: ActorRef, detached: Boolean)
   extends Actor {
 
-  val pb = new JdkProcessBuilder(args.asJava)
+  // This quoting functionality is as recommended per http://bugs.java.com/view_bug.do?bug_id=6511002
+  // The JDK can't change due to its backward compatibility requirements, but we have no such constraint
+  // here. Args should be able to be expressed consistently by the user of our API no matter whether
+  // execution is on Windows or not.
+
+  def needsQuoting(s: String): Boolean =
+    if (s.isEmpty) true else s.exists(c => c == ' ' || c == '\t' || c == '\\' || c == '"')
+
+  def winQuote(s: String): String = {
+    if (!needsQuoting(s)) {
+      s
+    } else {
+      "\"" + s.replaceAll("([\\\\]*)\"", "$1$1\\\\\"").replaceAll("([\\\\]*)\\z", "$1$1") + "\""
+    }
+  }
+
+  val isWindows: Boolean = System.getProperty("os.name").toLowerCase.contains("win")
+
+  def prepareArgs(args: immutable.Seq[String]): immutable.Seq[String] =
+    if (isWindows) args.map(winQuote) else args
+
+  val pb = new JdkProcessBuilder(prepareArgs(args).asJava)
   pb.environment().putAll(environment.asJava)
   val p = pb.start()
 
