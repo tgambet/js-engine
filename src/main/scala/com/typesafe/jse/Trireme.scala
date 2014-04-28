@@ -10,6 +10,8 @@ import io.apigee.trireme.core._
 import scala.collection.JavaConverters._
 import com.typesafe.jse.Engine.ExecuteJs
 import org.mozilla.javascript.RhinoException
+import scala.util.Try
+import io.apigee.trireme.core.internal.{NoCloseOutputStream, NoCloseInputStream}
 
 /**
  * Declares an in-JVM Rhino based JavaScript engine supporting the Node API.
@@ -71,13 +73,7 @@ class Trireme(
 
   }
 
-  def closeSafely(closable: Closeable): Unit = {
-    try {
-      closable.close()
-    } catch {
-      case _: Exception =>
-    }
-  }
+  def closeSafely(closable: Closeable): Try[Unit] = Try(closable.close())
 
   override def postStop() = {
     // Be paranoid and ensure that all resources are cleared up.
@@ -127,9 +123,9 @@ private[jse] class TriremeShell(
   val env = (sys.env ++ environment).asJava
   val nodeEnv = new NodeEnvironment()
   val sandbox = new Sandbox()
-  sandbox.setStdin(stdinIs)
-  sandbox.setStdout(stdoutOs)
-  sandbox.setStderr(stderrOs)
+  sandbox.setStdin(new NoCloseInputStream(stdinIs))
+  sandbox.setStdout(new NoCloseOutputStream(stdoutOs))
+  sandbox.setStderr(new NoCloseOutputStream(stderrOs))
 
   def receive = {
     case Execute =>
@@ -148,7 +144,9 @@ private[jse] class TriremeShell(
         def onComplete(script: NodeScript, status: ScriptStatus): Unit = {
           if (status.hasCause) {
             status.getCause match {
-              case e: RhinoException => stderrOs.write(e.getScriptStackTrace.getBytes("UTF-8"))
+              case e: RhinoException =>
+                stderrOs.write(e.getLocalizedMessage.getBytes("UTF-8"))
+                stderrOs.write(e.getScriptStackTrace.getBytes("UTF-8"))
               case t => t.printStackTrace(new PrintStream(stderrOs))
             }
           }
