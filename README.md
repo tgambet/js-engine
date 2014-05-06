@@ -34,4 +34,4 @@ library is not related to sbt at all and should be usable from other build tools
 
 The library is entirely [reactive](http://www.reactivemanifesto.org/) and uses [Akka](http://akka.io/).
 
-&copy; Typesafe Inc., 2013
+&copy; Typesafe Inc., 2013, 2014
