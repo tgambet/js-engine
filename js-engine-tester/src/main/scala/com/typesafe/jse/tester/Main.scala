@@ -21,7 +21,7 @@ object Main {
       System.exit(1)
     }
 
-    val engine = system.actorOf(Node.props(Some(new File("/usr/local/bin/node"))), "engine")
+    val engine = system.actorOf(Node.props(), "engine")
     val f = new File(Main.getClass.getResource("test.js").toURI)
     for (
       result <- (engine ? Engine.ExecuteJs(f, immutable.Seq("999"), timeout.duration)).mapTo[JsExecutionResult]

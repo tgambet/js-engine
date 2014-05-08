@@ -11,6 +11,7 @@ import org.specs2.time.NoTimeConversions
 import akka.util.Timeout
 import akka.actor.ActorSystem
 import scala.concurrent.Await
+import java.util.concurrent.TimeUnit
 
 @RunWith(classOf[JUnitRunner])
 class RhinoSpec extends Specification with NoTimeConversions {
@@ -20,7 +21,7 @@ class RhinoSpec extends Specification with NoTimeConversions {
       val system = ActorSystem()
       val engine = system.actorOf(Rhino.props())
       val f = new File(classOf[RhinoSpec].getResource("test-rhino.js").toURI)
-      implicit val timeout = Timeout(5000L)
+      implicit val timeout = Timeout(5000L, TimeUnit.MILLISECONDS)
 
       val futureResult = (engine ? Engine.ExecuteJs(f, immutable.Seq("999"), timeout.duration)).mapTo[JsExecutionResult]
       val result = Await.result(futureResult, timeout.duration)

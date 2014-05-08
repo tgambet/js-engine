@@ -18,7 +18,7 @@ class LocalEngine(stdArgs: immutable.Seq[String], stdEnvironment: Map[String, St
 
   def receive = {
     case ExecuteJs(f, args, timeout, timeoutExitValue, environment) =>
-      val requester = sender
+      val requester = sender()
 
       context.actorOf(BlockingProcess.props(
         (stdArgs :+ f.getCanonicalPath) ++ args,
