@@ -4,14 +4,15 @@ import akka.actor._
 import scala.concurrent.blocking
 import java.io._
 import akka.contrib.process.StreamEvents.Ack
-import akka.contrib.process.{Sink, Source}
+import akka.contrib.process._
 import scala.collection.immutable
 import io.apigee.trireme.core._
 import scala.collection.JavaConverters._
-import com.typesafe.jse.Engine.ExecuteJs
 import org.mozilla.javascript.RhinoException
 import scala.util.Try
 import io.apigee.trireme.core.internal.{NoCloseOutputStream, NoCloseInputStream}
+import scala.concurrent.duration._
+import com.typesafe.jse.Engine.ExecuteJs
 
 /**
  * Declares an in-JVM Rhino based JavaScript engine supporting the Node API.
@@ -28,25 +29,20 @@ class Trireme(
   // Trireme code (Trireme's execution is blocking), and actors for the source of stdio (which is also blocking).
   // This actor is then a conduit of the IO as a result of execution.
 
-  val stdoutOs = new PipedOutputStream()
-  val stderrOs = new PipedOutputStream()
-
-  val stdoutIs = new PipedInputStream(stdoutOs)
-  val stderrIs = new PipedInputStream(stderrOs)
+  val StdioTimeout = 30.seconds
 
   def receive = {
     case ExecuteJs(source, args, timeout, timeoutExitValue, environment) =>
-      val requester = sender
+      val requester = sender()
 
-      // Create an input stream and close it immediately as it isn't going to be used.
-      val stdinOs = new PipedOutputStream()
-      val stdinIs = new PipedInputStream(stdinOs)
+      val stdinSink = context.actorOf(BufferingSink.props(ioDispatcherId = ioDispatcherId), "stdin")
+      val stdinIs = new SourceStream(stdinSink, StdioTimeout)
+      val stdoutSource = context.actorOf(ForwardingSource.props(self, ioDispatcherId = ioDispatcherId), "stdout")
+      val stdoutOs = new SinkStream(stdoutSource, StdioTimeout)
+      val stderrSource = context.actorOf(ForwardingSource.props(self, ioDispatcherId = ioDispatcherId), "stderr")
+      val stderrOs = new SinkStream(stderrSource, StdioTimeout)
 
       try {
-        val stdinSink = context.actorOf(Sink.props(stdinOs, ioDispatcherId = ioDispatcherId), "stdin")
-        val stdoutSource = context.actorOf(Source.props(stdoutIs, self, ioDispatcherId = ioDispatcherId), "stdout")
-        val stderrSource = context.actorOf(Source.props(stderrIs, self, ioDispatcherId = ioDispatcherId), "stderr")
-
         context.become(engineIOHandler(
           stdinSink, stdoutSource, stderrSource,
           requester,
@@ -61,30 +57,11 @@ class Trireme(
           stdinIs, stdoutOs, stderrOs
         ), "trireme-shell") ! TriremeShell.Execute
 
-        // We don't need an input stream so close it out straight away.
-        stdinSink ! PoisonPill
-
       } finally {
-        blocking {
-          closeSafely(stdinIs)
-          closeSafely(stdinOs)
-        }
+        // We don't need stdin
+        blocking(Try(stdinIs.close()))
       }
-
   }
-
-  def closeSafely(closable: Closeable): Try[Unit] = Try(closable.close())
-
-  override def postStop() = {
-    // Be paranoid and ensure that all resources are cleared up.
-    blocking {
-      closeSafely(stderrIs)
-      closeSafely(stdoutIs)
-      closeSafely(stderrOs)
-      closeSafely(stdoutOs)
-    }
-  }
-
 }
 
 object Trireme {
@@ -138,7 +115,7 @@ private[jse] class TriremeShell(
       script.setSandbox(sandbox)
       script.setEnvironment(env)
 
-      val senderSel = sender.path
+      val senderSel = sender().path
       val senderSys = context.system
       script.execute.setListener(new ScriptStatusListener {
         def onComplete(script: NodeScript, status: ScriptStatus): Unit = {

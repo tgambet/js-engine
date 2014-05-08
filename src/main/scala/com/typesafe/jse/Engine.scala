@@ -57,11 +57,11 @@ abstract class Engine(stdArgs: immutable.Seq[String], stdEnvironment: Map[String
     }
 
     {
-      case bytes: ByteString => handleStdioBytes(sender, bytes)
+      case bytes: ByteString => handleStdioBytes(sender(), bytes)
       case exitValue: Int =>
         if (exitValue != timeoutExitValue) {
           context.become {
-            case bytes: ByteString => handleStdioBytes(sender, bytes)
+            case bytes: ByteString => handleStdioBytes(sender(), bytes)
             case Terminated(`stdinSink` | `stdoutSource` | `stderrSource`) => {
               openStreams -= 1
               if (openStreams == 0) {

@@ -1,14 +1,18 @@
 package akka.contrib.process
 
 import akka.actor._
-import akka.util.ByteString
+import akka.util.{Timeout, ByteString}
 import java.io._
 import scala.collection.JavaConverters._
 import scala.collection.immutable
-import scala.concurrent.blocking
+import scala.concurrent.{Await, blocking}
 import java.lang.{ProcessBuilder => JdkProcessBuilder}
 import akka.contrib.process.BlockingProcess.Started
-import akka.contrib.process.StreamEvents.{Done, Ack}
+import akka.contrib.process.StreamEvents.{Read, Done, Ack}
+import akka.pattern.ask
+import scala.concurrent.duration.{FiniteDuration, Duration}
+import scala.annotation.tailrec
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Process encapsulates an operating system process and its ability to be communicated with
@@ -50,9 +54,9 @@ class BlockingProcess(args: immutable.Seq[String], environment: Map[String, Stri
   pb.environment().putAll(environment.asJava)
   val p = pb.start()
 
-  val stdinSink = context.actorOf(Sink.props(p.getOutputStream), "stdin")
-  val stdoutSource = context.watch(context.actorOf(Source.props(p.getInputStream, receiver), "stdout"))
-  val stderrSource = context.watch(context.actorOf(Source.props(p.getErrorStream, receiver), "stderr"))
+  val stdinSink = context.actorOf(OutputStreamSink.props(p.getOutputStream), "stdin")
+  val stdoutSource = context.watch(context.actorOf(InputStreamSource.props(p.getInputStream, receiver), "stdout"))
+  val stderrSource = context.watch(context.actorOf(InputStreamSource.props(p.getErrorStream, receiver), "stderr"))
 
   var openStreams = 2
 
@@ -105,6 +109,7 @@ object BlockingProcess {
 
 }
 
+
 /**
  * Declares the types of event that are involved with streaming.
  */
@@ -120,20 +125,29 @@ object StreamEvents {
    */
   case object Done
 
+  /**
+   * Read n bytes from an input.
+   */
+  case class Read(size: Int)
+
 }
 
 /**
- * A sink of data given an output stream. Flow control is implemented and for each ByteString event received an Ack
- * is sent in return. A Done event is expected when there is no more data to be written. On receiving a Done
- * event the associated output stream will be closed.
+ * A target to stream bytes to. Flow control is provided i.e. every message of bytes sent is acknowledged with an
+ * Ack. A Done event is expected when there is no more data to be written.
  */
-class Sink(os: OutputStream) extends Actor {
+abstract class Sink extends Actor
+
+/**
+ * A sink of data given an output stream.
+ */
+class OutputStreamSink(os: OutputStream) extends Sink {
   def receive = {
     case bytes: ByteString =>
       blocking {
         os.write(bytes.toArray)
       }
-      sender ! Ack
+      sender() ! Ack
     case Done => context.stop(self)
   }
 
@@ -142,21 +156,55 @@ class Sink(os: OutputStream) extends Actor {
   }
 }
 
-object Sink {
+object OutputStreamSink {
   def props(
              os: OutputStream,
              ioDispatcherId: String = "blocking-process-io-dispatcher"
-             ): Props = Props(classOf[Sink], os)
+             ): Props = Props(classOf[OutputStreamSink], os)
     .withDispatcher(ioDispatcherId)
 }
+
+/**
+ * A buffering sink. The present implementation is quite limited in that the buffer can grow indefinitely.
+ */
+class BufferingSink extends Sink {
+  var buffer = ByteString()
+
+  def receive = {
+    case bytes: ByteString =>
+      buffer = buffer.concat(bytes)
+      sender() ! Ack
+    case Read(size) =>
+      val (readBytes, remainingBytes) = buffer.splitAt(size)
+      buffer = remainingBytes
+      sender() ! readBytes
+    case Done => context.stop(self)
+  }
+}
+
+object BufferingSink {
+  def props(
+             ioDispatcherId: String = "blocking-process-io-dispatcher"
+             ): Props = Props(classOf[BufferingSink])
+    .withDispatcher(ioDispatcherId)
+}
+
+
+/**
+ * A holder of data received and forwarded on to a receiver with flow control. There is only one sender expected and
+ * that sender should not send again until an Ack from the previous send.
+ * @param receiver the receiver of data from the source.
+ */
+abstract class Source(receiver: ActorRef) extends Actor
 
 /**
  * A source of data given an input stream. Flow control is implemented and for each ByteString event received by the receiver,
  * an Ack is expected in return. At the end of the source, a Done event will be sent to the receiver and its associated
  * input stream is closed.
  */
-class Source(is: InputStream, receiver: ActorRef, pipeSize: Int) extends Actor {
+class InputStreamSource(is: InputStream, receiver: ActorRef, pipeSize: Int) extends Source(receiver) {
   require(pipeSize > 0)
+
   val buffer = new Array[Byte](pipeSize)
 
   def receive = {
@@ -181,12 +229,116 @@ class Source(is: InputStream, receiver: ActorRef, pipeSize: Int) extends Actor {
   }
 }
 
-object Source {
+object InputStreamSource {
   def props(
              is: InputStream,
              receiver: ActorRef,
              pipeSize: Int = 1024,
              ioDispatcherId: String = "blocking-process-io-dispatcher"
-             ): Props = Props(classOf[Source], is, receiver, pipeSize)
+             ): Props = Props(classOf[InputStreamSource], is, receiver, pipeSize)
     .withDispatcher(ioDispatcherId)
+}
+
+/**
+ * A source of data that simply forwards on to the receiver.
+ */
+class ForwardingSource(receiver: ActorRef) extends Source(receiver) {
+  def receive = {
+    case bytes: ByteString =>
+      val origSender = sender()
+      receiver ! bytes
+      context.become {
+        case Ack =>
+          origSender ! Ack
+          context.unbecome()
+        case Done => context.stop(self)
+      }
+    case Done => context.stop(self)
+  }
+}
+
+object ForwardingSource {
+  def props(
+             receiver: ActorRef,
+             ioDispatcherId: String = "blocking-process-io-dispatcher"
+             ): Props = Props(classOf[ForwardingSource], receiver)
+    .withDispatcher(ioDispatcherId)
+}
+
+
+/**
+ * Forwards messages on to a Source in a blocking manner conforming to the JDK OutputStream.
+ */
+class SinkStream(val source: ActorRef, timeout: FiniteDuration) extends OutputStream {
+  implicit val akkaTimeout = new Timeout(timeout)
+
+  var isClosed = new AtomicBoolean(false)
+
+  override def close(): Unit = if (isClosed.compareAndSet(false, true)) source ! Done
+
+  override def write(b: Int): Unit = {
+    try {
+      Await.result(source ? ByteString(b), timeout)
+    } catch {
+      case e: RuntimeException =>
+        isClosed.set(true)
+        throw new IOException("While writing source stream", e)
+    }
+  }
+
+  override def write(bytes: Array[Byte]): Unit = {
+    try {
+      Await.result(source ? ByteString.fromArray(bytes), timeout)
+    } catch {
+      case e: RuntimeException =>
+        isClosed.set(true)
+        throw new IOException("While writing to the source. Closing stream.", e)
+    }
+  }
+}
+
+/**
+ * Reads from a sink in a blocking manner conforming to the JDK InputStream
+ */
+class SourceStream(val sink: ActorRef, timeout: FiniteDuration) extends InputStream {
+  implicit val akkaTimeout = new Timeout(timeout)
+
+  var isClosed = new AtomicBoolean(false)
+
+  override def close(): Unit = if (isClosed.compareAndSet(false, true)) sink ! Done
+
+  private def getBytes(size: Int): ByteString = {
+    try {
+      val bytes = Await.result((sink ? Read).mapTo[ByteString], timeout: Duration)
+      sink ! Ack
+      bytes
+    } catch {
+      case e: RuntimeException =>
+        isClosed.set(true)
+        throw new IOException("Problem when reading bytes from the sink. Closing stream.", e)
+    }
+  }
+
+  @tailrec
+  override final def read(): Int = {
+    val bs = getBytes(1)
+    if (!bs.isEmpty) {
+      bs(0)
+    } else {
+      Thread.sleep(100)
+      read()
+    }
+  }
+
+  @tailrec
+  override final def read(bytes: Array[Byte]): Int = {
+    val bs = getBytes(bytes.size)
+    if (!bs.isEmpty) {
+      bs.copyToArray(bytes, 0, bs.size)
+      bs.size
+    } else {
+      Thread.sleep(100)
+      read(bytes)
+    }
+  }
 }
