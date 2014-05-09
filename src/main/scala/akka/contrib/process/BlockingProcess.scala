@@ -281,7 +281,6 @@ class SinkStream(val source: ActorRef, timeout: FiniteDuration) extends OutputSt
       Await.result(source ? ByteString(b), timeout)
     } catch {
       case e: RuntimeException =>
-        isClosed.set(true)
         throw new IOException("While writing source stream", e)
     }
   }
@@ -291,7 +290,6 @@ class SinkStream(val source: ActorRef, timeout: FiniteDuration) extends OutputSt
       Await.result(source ? ByteString.fromArray(bytes), timeout)
     } catch {
       case e: RuntimeException =>
-        isClosed.set(true)
         throw new IOException("While writing to the source. Closing stream.", e)
     }
   }
@@ -314,7 +312,6 @@ class SourceStream(val sink: ActorRef, timeout: FiniteDuration) extends InputStr
       bytes
     } catch {
       case e: RuntimeException =>
-        isClosed.set(true)
         throw new IOException("Problem when reading bytes from the sink. Closing stream.", e)
     }
   }

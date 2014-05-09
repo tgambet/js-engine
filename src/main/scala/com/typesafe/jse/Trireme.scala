@@ -118,11 +118,18 @@ private[jse] class TriremeShell(
       script.execute.setListener(new ScriptStatusListener {
         def onComplete(script: NodeScript, status: ScriptStatus): Unit = {
           if (status.hasCause) {
-            status.getCause match {
-              case e: RhinoException =>
-                stderrOs.write(e.getLocalizedMessage.getBytes("UTF-8"))
-                stderrOs.write(e.getScriptStackTrace.getBytes("UTF-8"))
-              case t => t.printStackTrace(new PrintStream(stderrOs))
+            try {
+              status.getCause match {
+                case e: RhinoException =>
+                  stderrOs.write(e.getLocalizedMessage.getBytes("UTF-8"))
+                  stderrOs.write(e.getScriptStackTrace.getBytes("UTF-8"))
+                case t =>
+                  t.printStackTrace(new PrintStream(stderrOs))
+              }
+            } catch {
+              case e: RuntimeException =>
+                log.error("Problem completing Trireme. Throwing exception, meanwhile here's the Trireme problem", status.getCause)
+                throw e
             }
           }
           stdoutOs.close()
