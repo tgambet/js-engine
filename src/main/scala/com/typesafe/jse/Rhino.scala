@@ -51,7 +51,7 @@ class Rhino(
         ))
 
         context.actorOf(RhinoShell.props(
-          source,
+          source.getCanonicalFile,
           stdArgs ++ args,
           stdModulePaths,
           stdinIs, stdoutOs, stderrOs,
@@ -101,10 +101,10 @@ private[jse] class RhinoShell(
   val lb = ListBuffer[String]()
   lb ++= Seq(
     "-opt", "-1",
-    "-modules", source.getParent
+    "-modules", source.getParentFile.toURI.toString
   )
   lb ++= modulePaths.flatMap(Seq("-modules", _))
-  lb += source.getCanonicalPath
+  lb += source.toURI.toString
   lb ++= args
 
   val shellArgs = lb.toArray

@@ -51,7 +51,7 @@ class Trireme(
         ))
 
         context.actorOf(TriremeShell.props(
-          source,
+          source.getCanonicalFile,
           stdArgs ++ args,
           stdEnvironment ++ environment,
           stdinIs, stdoutOs, stderrOs
@@ -94,8 +94,6 @@ private[jse] class TriremeShell(
                                  ) extends Actor with ActorLogging {
 
   import TriremeShell._
-
-  val sourcePath = source.getCanonicalPath
 
   val env = (sys.env ++ environment).asJava
   val nodeEnv = new NodeEnvironment()
