@@ -128,7 +128,7 @@ private[jse] class TriremeShell(
               }
             } catch {
               case e: Throwable =>
-                log.error("Problem completing Trireme. Throwing exception, meanwhile here's the Trireme problem", status.getCause)
+                log.error(status.getCause, "Problem completing Trireme. Throwing exception, meanwhile here's the Trireme problem")
                 throw e
             }
           }
