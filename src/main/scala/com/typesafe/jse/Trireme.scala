@@ -127,7 +127,7 @@ private[jse] class TriremeShell(
                   t.printStackTrace(new PrintStream(stderrOs))
               }
             } catch {
-              case e: RuntimeException =>
+              case e: Throwable =>
                 log.error("Problem completing Trireme. Throwing exception, meanwhile here's the Trireme problem", status.getCause)
                 throw e
             }
