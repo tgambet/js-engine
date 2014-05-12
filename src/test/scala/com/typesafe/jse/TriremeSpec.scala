@@ -45,7 +45,7 @@ class TriremeSpec extends Specification with NoTimeConversions {
           val futureResult = (engine ? Engine.ExecuteJs(f, immutable.Seq("999"), timeout.duration)).mapTo[JsExecutionResult]
           val result = Await.result(futureResult, timeout.duration)
           new String(result.output.toArray, "UTF-8").trim must_== ""
-          new String(result.error.toArray, "UTF-8").trim must startWith("""ReferenceError: "print" is not defined""")
+          new String(result.error.toArray, "UTF-8").trim must startWith("""ReferenceError: "readFile" is not defined""")
       }
     }
   }
