@@ -13,6 +13,7 @@ import scala.util.Try
 import io.apigee.trireme.core.internal.{NoCloseOutputStream, NoCloseInputStream}
 import scala.concurrent.duration._
 import com.typesafe.jse.Engine.ExecuteJs
+import akka.pattern.AskTimeoutException
 
 /**
  * Declares an in-JVM Rhino based JavaScript engine supporting the Node API.
@@ -128,8 +129,12 @@ private[jse] class TriremeShell(
               }
             } catch {
               case e: Throwable =>
-                log.error(status.getCause, "Problem completing Trireme. Throwing exception, meanwhile here's the Trireme problem")
-                throw e
+                if (e.isInstanceOf[AskTimeoutException] || status.getCause.isInstanceOf[AskTimeoutException]) {
+                  log.error(e, "Received a timeout probably because stdio sinks and sources were closed early given a timeout waiting for the JS to execute. Increase the timeout.")
+                } else {
+                  log.error(status.getCause, "Problem completing Trireme. Throwing exception, meanwhile here's the Trireme problem")
+                  throw e
+                }
             }
           }
           stdoutOs.close()

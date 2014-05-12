@@ -93,7 +93,7 @@ object Engine {
    * Execute JS. Execution will result in a JsExecutionResult being replied to the sender.
    * @param source The source file to execute.
    * @param args The sequence of arguments to pass to the js source.
-   * @param timeout The amount of time to wait for the js to execute.
+   * @param timeout The amount of time to wait for the js to execute. Recommend at least 1 minute given slow CI servers in particular.
    * @param timeoutExitValue The exit value to receive if the above timeout occurs.
    * @param environment A mapping of environment variables to use.
    */
