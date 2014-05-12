@@ -1,17 +1,21 @@
 package com.typesafe.jse
 
 import akka.actor._
-import org.mozilla.javascript.tools.shell.Main
-import scala.collection.mutable.ListBuffer
-import org.mozilla.javascript._
-import scala.concurrent.blocking
-import java.io._
-import akka.contrib.process.StreamEvents.Ack
 import akka.contrib.process._
+import akka.contrib.process.StreamEvents.Ack
+import java.io._
+import java.net.URI
 import scala.collection.immutable
+import scala.concurrent.blocking
 import scala.concurrent.duration._
-import com.typesafe.jse.Engine.ExecuteJs
 import scala.util.Try
+
+import org.mozilla.javascript._
+import org.mozilla.javascript.commonjs.module.RequireBuilder
+import org.mozilla.javascript.commonjs.module.provider.{UrlModuleSourceProvider, SoftCachingModuleScriptProvider}
+import org.mozilla.javascript.tools.shell.Global
+
+import com.typesafe.jse.Engine.ExecuteJs
 
 /**
  * Declares an in-JVM Rhino based JavaScript engine. The actor is expected to be
@@ -50,13 +54,13 @@ class Rhino(
           timeout, timeoutExitValue
         ))
 
-        context.actorOf(RhinoShell.props(
+        context.actorOf(RhinoExecutor.props(
           source.getCanonicalFile,
           stdArgs ++ args,
           stdModulePaths,
           stdinIs, stdoutOs, stderrOs,
           rhinoShellDispatcherId
-        ), "rhino-shell") ! RhinoShell.Execute
+        ), "rhino-shell") ! RhinoExecutor.Execute
 
       } finally {
         // We don't need stdin
@@ -86,7 +90,7 @@ object Rhino {
  * Manage the execution of the Rhino shell setting up its environment, running the main entry point
  * and sending its parent the exit code when it can see that the stdio sources have closed.
  */
-private[jse] class RhinoShell(
+private[jse] class RhinoExecutor(
                                source: File,
                                args: immutable.Seq[String],
                                modulePaths: immutable.Seq[String],
@@ -95,48 +99,77 @@ private[jse] class RhinoShell(
                                stderrOs: OutputStream
                                ) extends Actor with ActorLogging {
 
-  import RhinoShell._
+  import RhinoExecutor._
 
-  // Formulate arguments to the Rhino shell.
-  val lb = ListBuffer[String]()
-  lb ++= Seq(
-    "-opt", "-1",
-    "-modules", source.getParentFile.toURI.toString
-  )
-  lb ++= modulePaths.flatMap(Seq("-modules", _))
-  lb += source.toURI.toString
-  lb ++= args
+  // Some doc to help understanding this code
+  // https://groups.google.com/d/msg/envjs/Tnvpvvzu_9Q/F-g9MoJ8nNgJ
+  // https://groups.google.com/forum/#!msg/mozilla-rhino/HCMh_lAKiI4/P1MA3sFsNKQJ
+  // http://stackoverflow.com/questions/11080037/java-7-rhino-1-7r3-support-for-commonjs-modules (on why we can't use javax API)
 
-  val shellArgs = lb.toArray
+  val requireBuilder = {
+    import scala.collection.JavaConversions
+    val paths = source.getParentFile.toURI +: modulePaths.map(new URI(_))
+    val sourceProvider = new UrlModuleSourceProvider(JavaConversions.asJavaIterable(paths), null)
+    val scriptProvider = new SoftCachingModuleScriptProvider(sourceProvider)
+    new RequireBuilder().setModuleScriptProvider(scriptProvider)
+  }
 
   def receive = {
+
     case Execute =>
-      // Each time we use Rhino we set properties in the global scope that represent the stdout and stderr
-      // output streams. These output streams are plugged into our source actors.
-      withContext {
-        def jsStdoutOs = Context.javaToJS(stdoutOs, Main.getGlobal)
-        ScriptableObject.putProperty(Main.getGlobal, "stdout", jsStdoutOs)
-        def jsStderrOs = Context.javaToJS(stderrOs, Main.getGlobal)
-        ScriptableObject.putProperty(Main.getGlobal, "stderr", jsStderrOs)
-      }
-      val exitCode = blocking {
-        try {
-          if (log.isDebugEnabled) {
-            log.debug("Invoking Rhino with {}", shellArgs)
-          }
-          Main.exec(shellArgs)
-        } finally {
-          stdoutOs.close()
-          stderrOs.close()
+
+      val ctx = Context.enter()
+
+      try {
+
+        // Create a global object so that we have Rhino shell functions in scope (e.g. load, print, ...)
+        val global = {
+          val g = new Global()
+          g.init(ctx)
+          g.setIn(stdinIs)
+          g.setErr(new PrintStream(stderrOs))
+          g.setOut(new PrintStream(stdoutOs))
+          g
         }
+
+        // Prepare a scope by passing the arguments and adding CommonJS support
+        val scope = {
+          val s = ctx.initStandardObjects(global, false)
+          s.defineProperty("arguments", args.toArray, ScriptableObject.READONLY)
+          val require = requireBuilder.createRequire(ctx, s)
+          require.install(s)
+          s
+        }
+
+        // Evaluate
+        val script = new File(source.toURI)
+        val reader = new FileReader(script)
+        ctx.evaluateReader(scope, reader, script.getName, 0, null)
+        sender() ! 0
+
+      } catch {
+
+        case e: RhinoException =>
+          stderrOs.write(e.getLocalizedMessage.getBytes("UTF-8"))
+          stderrOs.write(e.getScriptStackTrace.getBytes("UTF-8"))
+          sender() ! 1
+
+        case t: Exception =>
+          t.printStackTrace(new PrintStream(stderrOs))
+          sender() ! 1
+
+      } finally {
+
+        Try(stdoutOs.close())
+        Try(stderrOs.close())
+        Context.exit()
       }
 
-      sender() ! exitCode
   }
 
 }
 
-private[jse] object RhinoShell {
+private[jse] object RhinoExecutor {
   def props(
              moduleBase: File,
              args: immutable.Seq[String],
@@ -146,59 +179,10 @@ private[jse] object RhinoShell {
              stderrOs: OutputStream,
              rhinoShellDispatcherId: String
              ): Props = {
-    Props(classOf[RhinoShell], moduleBase, args, modulePaths, stdinIs, stdoutOs, stderrOs)
+    Props(classOf[RhinoExecutor], moduleBase, args, modulePaths, stdinIs, stdoutOs, stderrOs)
       .withDispatcher(rhinoShellDispatcherId)
   }
 
   case object Execute
-
-  private val lineSeparator = System.getProperty("line.separator").getBytes("UTF-8")
-
-  /*
-   * Our override of Rhino's print function. Output is sent to the stdout source. There is no provision in Rhino's
-   * shell to send to stderr.
-   *
-   * Has to be public in order for the Rhino shell to find it.
-   */
-  def print(
-             cx: Context,
-             thisObj: Scriptable,
-             args: Array[Any],
-             funObj: org.mozilla.javascript.Function
-             ): Any = {
-    val property = funObj.getParentScope.get("stdout", thisObj)
-    property match {
-      case jsOs: NativeJavaObject =>
-        jsOs.unwrap() match {
-          case os: OutputStream =>
-            args.foreach {
-              arg =>
-                val s = Context.toString(arg)
-                os.write(s.getBytes("UTF-8"))
-            }
-            os.write(lineSeparator)
-        }
-    }
-    Context.getUndefinedValue
-  }
-
-  // A utility to safely manage Rhino contexts.
-  private def withContext(block: => Unit): Unit = {
-    Context.enter()
-    try block finally {
-      Context.exit()
-    }
-  }
-
-  // Initialise our Rhino environment. If we've never done so before then do general Rhino shell
-  // initialisation and then override its print function. The Rhino shell is all static so this
-  // only need be done once.
-  if (!Main.getGlobal.isInitialized) {
-    Main.getGlobal.init(Main.shellContextFactory)
-  }
-
-  withContext {
-    Main.getGlobal.defineFunctionProperties(Array("print"), classOf[RhinoShell], ScriptableObject.DONTENUM)
-  }
 
 }
