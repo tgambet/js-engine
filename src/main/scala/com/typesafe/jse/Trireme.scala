@@ -1,19 +1,22 @@
 package com.typesafe.jse
 
 import akka.actor._
-import scala.concurrent.blocking
-import java.io._
 import akka.contrib.process.StreamEvents.Ack
 import akka.contrib.process._
-import scala.collection.immutable
-import io.apigee.trireme.core._
-import scala.collection.JavaConverters._
-import org.mozilla.javascript.RhinoException
-import scala.util.Try
-import io.apigee.trireme.core.internal.{NoCloseOutputStream, NoCloseInputStream}
-import scala.concurrent.duration._
-import com.typesafe.jse.Engine.ExecuteJs
 import akka.pattern.AskTimeoutException
+import java.io._
+import scala.collection.immutable
+import scala.collection.JavaConverters._
+import scala.concurrent.blocking
+import scala.concurrent.duration._
+import scala.io.Source
+import scala.util.Try
+
+import io.apigee.trireme.core._
+import io.apigee.trireme.core.internal.{NoCloseOutputStream, NoCloseInputStream}
+import org.mozilla.javascript.RhinoException
+
+import com.typesafe.jse.Engine.ExecuteJs
 
 /**
  * Declares an in-JVM Rhino based JavaScript engine supporting the Node API.
@@ -110,7 +113,13 @@ private[jse] class TriremeShell(
         log.debug("Invoking Trireme with {}", args)
       }
 
-      val script = nodeEnv.createScript(source.getName, source, args.toArray)
+      // Workaround for Windows support: Trireme (0.7.3) has broken path resolution on Windows but we can load the
+      // script ourselves and pass its content directly to workaround that issue.
+      // Cf https://github.com/playframework/playframework/issues/2803
+      // Cf https://github.com/apigee/trireme/blob/trireme-0.7.3/node10/node10src/src/main/javascript/io/apigee/trireme/node10/main/trireme.js#L780
+      val sourceContent = blocking(Source.fromFile(source, "UTF-8").getLines().mkString("\n"))
+
+      val script = nodeEnv.createScript(source.getName, sourceContent, args.toArray)
       script.setSandbox(sandbox)
       script.setEnvironment(env)
 

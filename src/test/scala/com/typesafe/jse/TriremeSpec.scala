@@ -14,15 +14,23 @@ import scala.concurrent.Await
 import java.util.concurrent.TimeUnit
 
 @RunWith(classOf[JUnitRunner])
-class TriremeSpec extends Specification with NoTimeConversions {
+class TriremeSpec extends Specification {
+
+  //sequential
 
   def withEngine[T](block: ActorRef => T): T = {
     val system = ActorSystem()
-    val engine = system.actorOf(Trireme.props())
-    block(engine)
+    val engine = system.actorOf(Trireme.props(), "engine")
+    try {
+      block(engine)
+    } finally {
+      system.shutdown()
+      system.awaitTermination()
+    }
   }
 
   "The Trireme engine" should {
+
     "execute some javascript by passing in a string arg and comparing its return value" in {
       withEngine {
         engine =>
@@ -31,8 +39,9 @@ class TriremeSpec extends Specification with NoTimeConversions {
 
           val futureResult = (engine ? Engine.ExecuteJs(f, immutable.Seq("999"), timeout.duration)).mapTo[JsExecutionResult]
           val result = Await.result(futureResult, timeout.duration)
-          new String(result.output.toArray, "UTF-8").trim must_== "999"
+
           new String(result.error.toArray, "UTF-8").trim must_== ""
+          new String(result.output.toArray, "UTF-8").trim must_== "999"
       }
     }
 
@@ -44,8 +53,9 @@ class TriremeSpec extends Specification with NoTimeConversions {
 
           val futureResult = (engine ? Engine.ExecuteJs(f, immutable.Seq("999"), timeout.duration)).mapTo[JsExecutionResult]
           val result = Await.result(futureResult, timeout.duration)
+
           new String(result.output.toArray, "UTF-8").trim must_== ""
-          new String(result.error.toArray, "UTF-8").trim must startWith("""ReferenceError: "print" is not defined""")
+          new String(result.error.toArray, "UTF-8").trim must startWith("""ReferenceError: "readFile" is not defined""")
       }
     }
   }
